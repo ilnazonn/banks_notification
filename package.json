@@ -5,11 +5,12 @@
   "license": "ISC",
   "author": "ilnazonn",
   "type": "module",
-  "main": "index.js",
+  "main": "dist/notification_bot.js",
   "scripts": {
     "build": "tsc",
-    "start": "notification_bot.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsc && nodemon src/notification_bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node dist/notification_bot.js"
   },
   "dependencies": {
     "axios": "^1.8.4",
