@@ -8,7 +8,7 @@ bot.command('banks', async (ctx) => {
         const banksData = await fetchBanksData();
         const formattedData = formatBanksData(banksData);
         await ctx.reply(formattedData, { parse_mode: 'HTML' });
-        await checkAndNotifyLowAvailability(banksData);
+        await checkAndNotifyLowAvailability();
     }
     catch (error) {
         console.error('Ошибка:', error);

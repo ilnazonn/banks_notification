@@ -1,10 +1,18 @@
-import axios from "axios";
 import * as cheerio from "cheerio"; // Импортируйте все содержимое как пространство имен
 import {BankData} from './config.js';
+import {fetchWithRetry} from './retryRequest.js';
 async function fetchBanksData(): Promise<BankData[]> {
-    const url = 'https://vendista.ru/banks_availability';
-    const response = await axios.get(url);
-    return parseBanksData(response.data);
+    try {
+        const url = 'https://vendista.ru/banks_availability';
+        const html = await fetchWithRetry(url, {
+            retries: 3,
+            timeout: 10000 // 10 секунд таймаут
+        });
+        return parseBanksData(html);
+    } catch (error) {
+        console.error('Ошибка при получении данных:', error);
+        throw new Error('Не удалось получить данные о банках');
+    }
 }
 
 function parseBanksData(html: string): BankData[] {

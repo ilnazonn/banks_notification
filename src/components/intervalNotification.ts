@@ -1,4 +1,5 @@
 import {bot,chatId, availabilityThresholdString, BankData} from './config.js';
+import axios from "axios";
 import {fetchBanksData} from './parseSite.js';
 // Глобальный объект для хранения времени первого обнаружения проблемы
 interface BankStatus {
@@ -8,8 +9,12 @@ interface BankStatus {
 }
 
 const bankStatusMap: Record<string, BankStatus> = {};
-
-async function checkAndNotifyLowAvailability(banks: BankData[]) {
+let serverStatus = {
+    errorCount: 0,
+    lastErrorTime: 0,
+    notificationSent: false
+};
+async function checkAndNotifyLowAvailability() {
     if (!availabilityThresholdString || !chatId) {
         console.error('Проверьте настройки: AVAILABILITY_PERCENT или TELEGRAM_CHAT_ID не заданы!');
         return;
@@ -21,111 +26,167 @@ async function checkAndNotifyLowAvailability(banks: BankData[]) {
         return;
     }
 
-    const currentTime = Date.now();
-    const checkerTime = 10 * 60 * 1000;
-    const problematicBanksNow = banks.filter(b => b.availability < availabilityThreshold);
-    const stableBanksNow = banks.filter(b => b.availability >= availabilityThreshold);
+    try {
+        const banksData = await fetchBanksData();
+        const currentTime = Date.now();
+        const checkerTime = 10 * 60 * 1000;
+        const problematicBanksNow = banksData.filter(b => b.availability < availabilityThreshold);
+        const stableBanksNow = banksData.filter(b => b.availability >= availabilityThreshold);
 
-    // Обработка проблемных банков
-    const banksToNotify: BankData[] = [];
+        // Проверка восстановления сервера после проблем
+        if (serverStatus.notificationSent) {
+            const stableDuration = currentTime - serverStatus.lastErrorTime;
+            const tenMinutes = 10 * 60 * 1000;
 
-    problematicBanksNow.forEach(bank => {
-        const bankKey = bank.name;
-
-        if (!bankStatusMap[bankKey]) {
-            // Первое обнаружение проблемы
-            bankStatusMap[bankKey] = {
-                firstDetectedTime: currentTime,
-                notificationSent: false,
-                resolvedTime: null
-            };
-            console.log(`Проблема обнаружена в ${bank.name}`);
-        } else if (!bankStatusMap[bankKey].notificationSent) {
-            // Проверяем длительность проблемы
-            const problemDuration = currentTime - bankStatusMap[bankKey].firstDetectedTime;
-
-            if (problemDuration >= checkerTime) {
-                banksToNotify.push(bank);
-                bankStatusMap[bankKey].notificationSent = true;
-                bankStatusMap[bankKey].resolvedTime = null;
+            if (stableDuration >= tenMinutes) {
+                await sendServerStatusNotification('✅ Сервер мониторинга банков стабильно работает\n\nПроблемы устранены, все системы функционируют нормально');
+                serverStatus = {
+                    errorCount: 0,
+                    lastErrorTime: 0,
+                    notificationSent: false
+                };
             }
         }
-    });
 
-    // Обработка стабильных банков
-    const banksToResolveNotify: string[] = [];
 
-    stableBanksNow.forEach(bank => {
-        const bankKey = bank.name;
 
-        if (bankStatusMap[bankKey]?.notificationSent) {
-            // Банк был проблемным и уведомление отправлялось
-            if (!bankStatusMap[bankKey].resolvedTime) {
-                // Первое обнаружение стабильности
-                bankStatusMap[bankKey].resolvedTime = currentTime;
-                console.log(`Проблема устранена в ${bank.name}, начат отсчет стабильности`);
-            } else {
-                // Проверяем длительность стабильности
-                const stableDuration = currentTime - bankStatusMap[bankKey].resolvedTime;
+        // Сброс счетчика ошибок при успешном запросе
+        serverStatus.errorCount = 0;
 
-                if (stableDuration >= checkerTime) {
-                    banksToResolveNotify.push(bankKey);
-                    delete bankStatusMap[bankKey]; // Сбрасываем статус
+
+        // Обработка проблемных банков
+        const banksToNotify: BankData[] = [];
+
+        problematicBanksNow.forEach(bank => {
+            const bankKey = bank.name;
+
+            if (!bankStatusMap[bankKey]) {
+                bankStatusMap[bankKey] = {
+                    firstDetectedTime: currentTime,
+                    notificationSent: false,
+                    resolvedTime: null
+                };
+                console.log(`Проблема обнаружена в ${bank.name}`);
+            } else if (!bankStatusMap[bankKey].notificationSent) {
+                const problemDuration = currentTime - bankStatusMap[bankKey].firstDetectedTime;
+
+                if (problemDuration >= checkerTime) {
+                    banksToNotify.push(bank);
+                    bankStatusMap[bankKey].notificationSent = true;
+                    bankStatusMap[bankKey].resolvedTime = null;
                 }
             }
-        }
-    });
-
-    // Отправка уведомлений о проблемах
-    if (banksToNotify.length > 0) {
-        let alertMessage = '⚠️ <b>ВНИМАНИЕ: Критически низкая доступность банков!</b>\n\n';
-
-        banksToNotify.forEach(bank => {
-            alertMessage += `▫️ <b>${bank.name}</b>: ${bank.availability.toFixed(2)}%\n`;
         });
 
-        alertMessage += `\n<i>Проблема длится более 10 минут. Пороговое значение: ${availabilityThreshold}%</i>`;
 
-        try {
-            await bot.api.sendMessage(chatId, alertMessage, { parse_mode: 'HTML' });
-            console.log('Отправлено уведомление о проблемах');
-        } catch (error) {
-            console.error('Ошибка отправки:', error);
-        }
-    }
+        // Обработка стабильных банков
+        const banksToResolveNotify: string[] = [];
 
-    // Отправка уведомлений о решении проблем
-    if (banksToResolveNotify.length > 0) {
-        let resolveMessage = '✅ <b>Проблемы с доступностью банков решены!</b>\n\n';
+        stableBanksNow.forEach(bank => {
+            const bankKey = bank.name;
 
-        banksToResolveNotify.forEach(bankName => {
-            resolveMessage += `▫️ <b>${bankName}</b>: доступность восстановлена\n`;
+            if (bankStatusMap[bankKey]?.notificationSent) {
+                if (!bankStatusMap[bankKey].resolvedTime) {
+                    bankStatusMap[bankKey].resolvedTime = currentTime;
+                    console.log(`Проблема устранена в ${bank.name}, начат отсчет стабильности`);
+                } else {
+                    const stableDuration = currentTime - bankStatusMap[bankKey].resolvedTime;
+
+                    if (stableDuration >= checkerTime) {
+                        banksToResolveNotify.push(bankKey);
+                        delete bankStatusMap[bankKey];
+                    }
+                }
+            }
         });
 
-        resolveMessage += `\n<i>Стабильная работа более 10 минут. Пороговое значение: ${availabilityThreshold}%</i>`;
+        // Восстановленная очистка статусов для несуществующих банков
+        Object.keys(bankStatusMap).forEach(bankKey => {
+            if (!banksData.some(b => b.name === bankKey)) {
+                console.log(`Банк ${bankKey} больше не существует, очищаем статус`);
+                delete bankStatusMap[bankKey];
+            }
+        });
 
-        try {
-            await bot.api.sendMessage(chatId, resolveMessage, { parse_mode: 'HTML' });
-            console.log('Отправлено уведомление о решении проблем');
-        } catch (error) {
-            console.error('Ошибка отправки:', error);
+
+        // Отправка уведомлений о проблемах
+        if (banksToNotify.length > 0) {
+            let alertMessage = '⚠️ <b>ВНИМАНИЕ: Критически низкая доступность банков!</b>\n\n';
+
+            banksToNotify.forEach(bank => {
+                alertMessage += `▫️ <b>${bank.name}</b>: ${bank.availability.toFixed(2)}%\n`;
+            });
+
+            alertMessage += `\n<i>Проблема длится более 10 минут. Порог: ${availabilityThreshold}%</i>`;
+
+            try {
+                await bot.api.sendMessage(chatId, alertMessage, { parse_mode: 'HTML' });
+                console.log('Отправлено уведомление о проблемах');
+            } catch (error) {
+                console.error('Ошибка отправки уведомления о проблемах:', error);
+            }
+        }
+
+        // Отправка уведомлений о решении проблем
+        if (banksToResolveNotify.length > 0) {
+            let resolveMessage = '✅ <b>Проблемы с доступностью банков решены!</b>\n\n';
+
+            banksToResolveNotify.forEach(bankName => {
+                resolveMessage += `▫️ <b>${bankName}</b>: доступность восстановлена\n`;
+            });
+
+            resolveMessage += `\n<i>Стабильная работа более 10 минут. Пороговое значение: ${availabilityThreshold}%</i>`;
+
+            try {
+                await bot.api.sendMessage(chatId, resolveMessage, { parse_mode: 'HTML' });
+                console.log('Отправлено уведомление о решении проблем');
+            } catch (error) {
+                console.error('Ошибка отправки уведомления о решениях:', error);
+            }
+        }
+
+    } catch (error: unknown) {
+        if (axios.isAxiosError(error)) {
+            serverStatus.errorCount++;
+            serverStatus.lastErrorTime = Date.now();
+
+            if (error.code === 'ETIMEDOUT') {
+                console.error(`Таймаут подключения (попытка ${serverStatus.errorCount}/3)`);
+
+                if (serverStatus.errorCount >= 3 && !serverStatus.notificationSent) {
+                    await sendServerStatusNotification(
+                        '⚠️ Проблемы с сервером мониторинга банков\n\n' +
+                        'Не удается подключиться к серверу в течение 3 попыток\n' +
+                        'Последняя ошибка: ' + error.message
+                    );
+                    serverStatus.notificationSent = true;
+                }
+            } else {
+                console.error('Ошибка при запросе данных:', error.message);
+            }
+        } else {
+            console.error('Неизвестная ошибка:', error instanceof Error ? error.message : String(error));
         }
     }
-
-    // Очистка статусов для банков, которые больше не существуют
-    Object.keys(bankStatusMap).forEach(bankKey => {
-        if (!banks.some(b => b.name === bankKey)) {
-            delete bankStatusMap[bankKey];
-        }
-    });
 }
 
-
+// Вспомогательная функция для уведомлений о проблемах сервера
+async function sendServerStatusNotification(message: string) {
+    try {
+        await bot.api.sendMessage(
+            chatId!,
+            message,
+            { parse_mode: 'HTML' }
+        );
+        console.log('Уведомление о состоянии сервера отправлено');
+    } catch (error) {
+        console.error('Ошибка отправки уведомления:', error);
+    }
+}
 setInterval(async () => {
     try {
         console.log('Выполняю периодическую проверку банков...');
-        const banksData = await fetchBanksData();
-        await checkAndNotifyLowAvailability(banksData);
+        await checkAndNotifyLowAvailability();
     } catch (error) {
         console.error('Ошибка при периодической проверке:', error);
     }
