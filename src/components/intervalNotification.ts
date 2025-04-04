@@ -36,9 +36,7 @@ async function checkAndNotifyLowAvailability() {
         // Проверка восстановления сервера после проблем
         if (serverStatus.notificationSent) {
             const stableDuration = currentTime - serverStatus.lastErrorTime;
-            const tenMinutes = 10 * 60 * 1000;
-
-            if (stableDuration >= tenMinutes) {
+            if (stableDuration >= checkerTime) {
                 await sendServerStatusNotification('✅ Сервер мониторинга банков стабильно работает\n\nПроблемы устранены, все системы функционируют нормально');
                 serverStatus = {
                     errorCount: 0,
