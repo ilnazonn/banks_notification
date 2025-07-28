@@ -29,7 +29,7 @@ async function checkAndNotifyLowAvailability() {
     try {
         const banksData = await fetchBanksData();
         const currentTime = Date.now();
-        const checkerTime =  60 * 1000;
+        const checkerTime = 10 * 60 * 1000;
         const problematicBanksNow = banksData.filter(b => b.availability < availabilityThreshold);
         const stableBanksNow = banksData.filter(b => b.availability >= availabilityThreshold);
 
