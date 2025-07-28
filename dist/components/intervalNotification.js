@@ -20,14 +20,14 @@ async function checkAndNotifyLowAvailability() {
     try {
         const banksData = await fetchBanksData();
         const currentTime = Date.now();
-        const checkerTime = 10 * 60 * 1000;
+        const checkerTime = 60 * 1000;
         const problematicBanksNow = banksData.filter(b => b.availability < availabilityThreshold);
         const stableBanksNow = banksData.filter(b => b.availability >= availabilityThreshold);
         // Проверка восстановления сервера после проблем
         if (serverStatus.notificationSent) {
             const stableDuration = currentTime - serverStatus.lastErrorTime;
             if (stableDuration >= checkerTime) {
-                await sendServerStatusNotification('✅ Сервер мониторинга банков стабильно работает\n\nПроблемы устранены, все системы функционируют нормально');
+                await sendServerStatusNotification('✅ API мониторинга банков стабильно работает\n\nПроблемы устранены, все системы функционируют нормально');
                 serverStatus = {
                     errorCount: 0,
                     lastErrorTime: 0,
@@ -119,16 +119,16 @@ async function checkAndNotifyLowAvailability() {
             serverStatus.errorCount++;
             serverStatus.lastErrorTime = Date.now();
             if (error.code === 'ETIMEDOUT') {
-                console.error(`Таймаут подключения (попытка ${serverStatus.errorCount}/3)`);
+                console.error(`Таймаут подключения к API (попытка ${serverStatus.errorCount}/3)`);
                 if (serverStatus.errorCount >= 3 && !serverStatus.notificationSent) {
-                    await sendServerStatusNotification('⚠️ Проблемы с сервером мониторинга банков\n\n' +
-                        'Не удается подключиться к серверу в течение 3 попыток\n' +
+                    await sendServerStatusNotification('⚠️ Проблемы с API мониторинга банков\n\n' +
+                        'Не удается подключиться к API в течение 3 попыток\n' +
                         'Последняя ошибка: ' + error.message);
                     serverStatus.notificationSent = true;
                 }
             }
             else {
-                console.error('Ошибка при запросе данных:', error.message);
+                console.error('Ошибка при запросе данных к API:', error.message);
             }
         }
         else {

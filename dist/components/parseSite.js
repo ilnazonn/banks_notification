@@ -1,34 +1,26 @@
-import * as cheerio from "cheerio"; // Импортируйте все содержимое как пространство имен
 import { fetchWithRetry } from './retryRequest.js';
 async function fetchBanksData() {
     try {
-        const url = 'https://vendista.ru/banks_availability';
-        const html = await fetchWithRetry(url, {
+        const url = 'https://api.vendista.ru:99/banks/availability';
+        const response = await fetchWithRetry(url, {
             retries: 3,
             timeout: 10000 // 10 секунд таймаут
         });
-        return parseBanksData(html);
+        return parseBanksData(response);
     }
     catch (error) {
         console.error('Ошибка при получении данных:', error);
         throw new Error('Не удалось получить данные о банках');
     }
 }
-function parseBanksData(html) {
-    const $ = cheerio.load(html);
-    const banks = [];
-    $('table tr').each((_, row) => {
-        const columns = $(row).find('td');
-        if (columns.length >= 2) {
-            const name = $(columns[0]).text().trim();
-            const availabilityStr = $(columns[1]).text().trim().replace(',', '.');
-            const availability = parseFloat(availabilityStr);
-            if (name && !isNaN(availability)) {
-                banks.push({ name, availability });
-            }
-        }
-    });
-    return banks;
+function parseBanksData(apiResponse) {
+    if (!apiResponse.success) {
+        throw new Error('API вернул ошибку');
+    }
+    return apiResponse.items.map((item) => ({
+        name: item.bank_name,
+        availability: item.current_success_percent
+    }));
 }
 function formatBanksData(banks) {
     let result = '<b>Текущая доступность банков:</b>\n\n';

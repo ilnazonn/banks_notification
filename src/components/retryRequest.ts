@@ -13,10 +13,20 @@ async function fetchWithRetry(url: string, options: FetchOptions = {}): Promise<
         try {
             const response = await axios.get(url, {
                 timeout,
-                signal: AbortSignal.timeout(timeout)
+                signal: AbortSignal.timeout(timeout),
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
             });
-            return response.data;
-        } catch (error: unknown) { // Явно указываем тип unknown
+            
+            // Проверяем, что ответ содержит JSON
+            if (response.headers['content-type']?.includes('application/json')) {
+                return response.data;
+            } else {
+                throw new Error('Неверный формат ответа: ожидается JSON');
+            }
+        } catch (error: unknown) {
             if (error instanceof Error) {
                 lastError = error;
                 console.warn(`Попытка ${attempt}/${retries} не удалась: ${error.message}`);
