@@ -188,6 +188,6 @@ setInterval(async () => {
     } catch (error) {
         console.error('Ошибка при периодической проверке:', error);
     }
-}, 10 * 60 * 1000); // таймер
+}, 60 * 1000); // таймер
 
 export {checkAndNotifyLowAvailability};
